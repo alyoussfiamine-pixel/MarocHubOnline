@@ -447,7 +447,23 @@ nav{
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 </head>
+<script>
+  // التهيئة الخاصة بـ Firebase
+  const firebaseConfig = {
+    apiKey: "AIzaSyCL2YIXx-5mTcEMdGv48oEvz3QI4fGxvyU",
+    authDomain: "marochubolline.firebaseapp.com",
+    databaseURL: "https://marochubolline-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "marochubolline",
+    storageBucket: "marochubolline.firebasestorage.app",
+    messagingSenderId: "60722141186",
+    appId: "1:60722141186:web:ddf2c3f16905cc7773ef1b",
+    measurementId: "G-X9GYK3DQ58"
+  };
 
+  // تفعيل Firebase والداتابيز
+  firebase.initializeApp(firebaseConfig);
+  const database = firebase.database();
+</script>
 <body>
 
 <nav>
