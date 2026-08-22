@@ -4,8 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MarocHubOnline | دليل المواقع</title>
-  <meta name="google-site-verification" content="CjLB4zIw7QKF-YnzyEyjD5LuAONaEOHy9rEoJlZpB48" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧭</text></svg>">
+
+  <!-- =====================================================
+       FIREBASE (khassek ghir tbdel firebaseConfig lte7t f script)
+       ===================================================== -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 </head>
 <style>
 :root{
@@ -94,6 +99,7 @@ nav{
 .nav-tools{
   display:flex;
   gap:8px;
+  align-items:center;
 }
 
 .tool{
@@ -102,6 +108,10 @@ nav{
   color:var(--text);
   border-radius:9px;
   padding:8px 12px;
+}
+
+.tool.status{
+  cursor:default;
 }
 
 .container{
@@ -146,6 +156,7 @@ nav{
   top:50%;
   transform:translateY(-50%);
   color:var(--sub);
+  font-style:normal;
 }
 
 .categories{
@@ -459,6 +470,8 @@ nav{
   </div>
 
   <div class="nav-tools">
+    <span class="tool status" id="cloudBadge" title="...">⏳ ...</span>
+
     <button class="tool" onclick="toggleLanguage()">
       🌐 <span id="languageText">FR</span>
     </button>
@@ -488,7 +501,7 @@ nav{
     </p>
 
     <div class="search">
-      <span>🔍</span>
+      <i>🔍</i>
       <input
         id="searchInput"
         type="text"
@@ -703,15 +716,25 @@ nav{
 <script>
 
 /* =====================================================
-   DATABASE INITIAL
-   Icons are plain emoji (native Unicode) instead of Font
-   Awesome. The sandboxed artifact preview can block the
-   external webfont file from loading, which made every
-   icon render as an empty box. Emoji need no external
-   font, so they always display correctly.
+   1) FIREBASE CONFIG — projet: MorocHubOnline ✅
    ===================================================== */
 
-const DATA_VERSION = 9; // bump this whenever defaultSites changes
+const firebaseConfig = {
+  apiKey: "AIzaSyDFvEhaSVZkR-6EwtufPAQSFDWv2RKJwUE",
+  authDomain: "morochubonline.firebaseapp.com",
+  projectId: "morochubonline",
+  storageBucket: "morochubonline.firebasestorage.app",
+  messagingSenderId: "698361937416",
+  appId: "1:698361937416:web:9558b44baf50a8fbd6dbbd",
+  measurementId: "G-QV1H1NND8H"
+};
+
+
+/* =====================================================
+   DATABASE INITIAL (default sites)
+   ===================================================== */
+
+const DATA_VERSION = 10; // bump this whenever defaultSites changes
 
 const defaultSites = [
 
@@ -724,7 +747,7 @@ const defaultSites = [
   desc:"متجر مغربي متخصص في PC Gaming وتجهيزات الألعاب.",
   icon:"🎮" },
 
-{ id:103, name:"Ultipc Maroc", url:"https://www.ultrapc.ma", category:"tech",
+{ id:103, name:"Ultrapc Maroc", url:"https://www.ultrapc.ma", category:"tech",
   desc:"متجر للحواسيب ومكونات PC والإلكترونيات.",
   icon:"💻" },
 
@@ -946,15 +969,15 @@ const defaultSites = [
 
 
 /* =====================================================
-   STORAGE
+   LOCAL STORAGE (cache / fallback)
    ===================================================== */
 
 const DB_KEY = "marochub_sites_v7";
 const FAV_KEY = "marochub_favorites_v7";
 const REPORT_KEY = "marochub_reports_v7";
 const THEME_KEY = "marochub_theme_v7";
+const LANG_KEY = "marochub_lang_v1";
 const VERSION_KEY = "marochub_data_version";
-const NEXT_ID_KEY = "marochub_next_id";
 
 /* Safe JSON parsing so a corrupted localStorage value
    never crashes the whole page. */
@@ -975,16 +998,11 @@ let reports = safeParse(localStorage.getItem(REPORT_KEY), []);
 let storedVersion = Number(localStorage.getItem(VERSION_KEY) || 0);
 
 /*
-  Merge strategy:
+  Merge strategy for the LOCAL cache:
   - First run (no db saved yet): use defaultSites as-is.
-  - Later runs where DATA_VERSION increased: refresh the
-    built-in sites (name/url/desc/icon/category) from the
-    latest defaultSites - this is how link fixes (e.g. a
-    corrected domain) reach users who already have an old
-    db saved - while keeping their clicks count, and add
-    any brand-new default sites that aren't in their db
-    yet. User-added custom sites (ids not in defaultSites)
-    are always left untouched.
+  - Later runs where DATA_VERSION increased: refresh built-in
+    sites while keeping clicks, and add new default sites.
+  - When the CLOUD is connected, cloud data always wins.
 */
 if(!db){
   db = [...defaultSites];
@@ -1005,17 +1023,18 @@ if(!db){
 
 localStorage.setItem(VERSION_KEY, String(DATA_VERSION));
 
-let nextId = Number(localStorage.getItem(NEXT_ID_KEY) || 0);
-if(!nextId){
-  const maxId = db.reduce((m,s) => Math.max(m, s.id||0), 0);
-  nextId = Math.max(maxId + 1, 2000);
+function sortSites(){
+  db.sort((a,b) =>
+    ((a.order ?? 99999) - (b.order ?? 99999)) || ((a.id||0) - (b.id||0))
+  );
 }
+sortSites();
 
 let currentCategory = "all";
 
 
 /* =====================================================
-   SAVE
+   SAVE (local cache)
    ===================================================== */
 
 function saveDB(){
@@ -1030,11 +1049,132 @@ function saveReports(){
   localStorage.setItem(REPORT_KEY, JSON.stringify(reports));
 }
 
-function getNextId(){
-  const id = nextId;
-  nextId += 1;
-  localStorage.setItem(NEXT_ID_KEY, String(nextId));
-  return id;
+function allocateId(){
+  const maxId = db.reduce((m,s) => Math.max(m, s.id||0), 0);
+  return Math.max(maxId + 1, 2000);
+}
+
+function allocateOrder(){
+  const maxOrder = db.reduce((m,s) => Math.max(m, s.order ?? 0), 0);
+  return maxOrder + 1;
+}
+
+
+/* =====================================================
+   FIREBASE / CLOUD
+   -----------------------------------------------------
+   - Kolchi kaytssauvegard f Firestore (cloud)
+   - Kola visitur kaychouf nafs l'data
+   - Ila Firebase ma khddamch, site kaykhdmo b localStorage
+     ki kan qbel (badge kaybano lik)
+   ===================================================== */
+
+let cloud = null;        // firestore instance
+let cloudReady = false;  // true mnin connexion naji7a
+
+const SITES_COLLECTION = "sites";
+const REPORTS_COLLECTION = "reports";
+
+function configIsFilled(){
+  return firebaseConfig &&
+    firebaseConfig.projectId &&
+    !String(firebaseConfig.projectId).includes("PASTE");
+}
+
+function cloudErrorMsg(err){
+  console.error("Firebase error:", err);
+  if(french){
+    return "Erreur de connexion b Firebase: " + (err && err.code ? err.code : err);
+  }
+  return "Mochkil f connexion m3a Firebase: " + (err && err.code ? err.code : err);
+}
+
+function setBadge(connected){
+  const badge = document.getElementById("cloudBadge");
+  if(!badge) return;
+  if(connected){
+    badge.textContent = "☁️ Cloud";
+    badge.title = "Mconnecté m3a Firebase — kolchi mchtark";
+  }else{
+    badge.textContent = "💾 Local";
+    badge.title = "Mode local — l'changes ma kaybanoch l'nas khrin";
+  }
+}
+
+async function startCloud(){
+  if(!configIsFilled()){
+    console.warn("firebaseConfig ma 3amrach — site ghadi ykhdmo b localStorage ghi 3andek.");
+    setBadge(false);
+    return;
+  }
+
+  try{
+    firebase.initializeApp(firebaseConfig);
+    cloud = firebase.firestore();
+  }catch(e){
+    console.warn("Firebase init failed:", e);
+    setBadge(false);
+    return;
+  }
+
+  try{
+    await cloud.enablePersistence({ silent:true }).catch(()=>{});
+    await cloudLoadAll();
+    cloudReady = true;
+    setBadge(true);
+  }catch(e){
+    console.warn("Cloud sync failed — staying on local mode:", e);
+    cloudReady = false;
+    setBadge(false);
+  }
+}
+
+async function cloudLoadAll(){
+  const sitesSnap = await cloud.collection(SITES_COLLECTION).get();
+
+  if(sitesSnap.empty){
+    /* Awal merra: sowweb l'liste li kayna daba (defaults +
+       chi zedtihom nta f local) l cloud bach kolchi ybanhom */
+    await cloudSeedCurrentData();
+    return;
+  }
+
+  db = sitesSnap.docs
+    .map(d => d.data())
+    .filter(s => s && s.id);
+
+  const reportsSnap = await cloud.collection(REPORTS_COLLECTION).get();
+  reports = reportsSnap.docs.map(d => d.data()).filter(r => r && r.id);
+
+  sortSites();
+  saveDB();
+  saveReports();
+
+  /* Re-render b data jdad dyal cloud */
+  renderCategories();
+  renderSites();
+  updateStats();
+  if(document.getElementById("adminPage").classList.contains("active")){
+    renderCategorySelect();
+    renderSitesTable();
+    renderReports();
+  }
+}
+
+async function cloudSeedCurrentData(){
+  const batch = cloud.batch();
+
+  db.forEach((site, index) => {
+    const docData = { ...site, order: site.order ?? index };
+    batch.set(cloud.collection(SITES_COLLECTION).doc(String(site.id)), docData);
+  });
+
+  reports.forEach(report => {
+    batch.set(cloud.collection(REPORTS_COLLECTION).doc(String(report.id)), report);
+  });
+
+  await batch.commit();
+  console.log("Seeded cloud with", db.length, "sites.");
 }
 
 
@@ -1173,7 +1313,7 @@ function renderSites(){
 
 
 /* =====================================================
-   FAVORITES
+   FAVORITES (per-user — katb9a f localStorage)
    ===================================================== */
 
 function toggleFavorite(id){
@@ -1203,20 +1343,28 @@ function renderFavorites(){
 
 
 /* =====================================================
-   CLICKS
+   CLICKS (cloud increment + local fallback)
    ===================================================== */
 
 function registerClick(id){
   const site = db.find(x => x.id === id);
   if(!site) return;
+
   site.clicks = (site.clicks || 0) + 1;
-  saveDB();
   updateStats();
+
+  if(cloudReady){
+    cloud.collection(SITES_COLLECTION).doc(String(id))
+      .update({ clicks: firebase.firestore.FieldValue.increment(1) })
+      .catch(() => saveDB());
+  }else{
+    saveDB();
+  }
 }
 
 
 /* =====================================================
-   REPORTS
+   REPORTS (cloud)
    ===================================================== */
 
 function openReport(id){
@@ -1229,7 +1377,7 @@ function closeReport(){
   document.getElementById("reportModal").classList.remove("active");
 }
 
-function submitReport(){
+async function submitReport(){
   const id = Number(document.getElementById("reportSiteId").value);
   const reason = document.getElementById("reportReason").value.trim();
   const site = db.find(x => x.id === id);
@@ -1239,14 +1387,24 @@ function submitReport(){
     return;
   }
 
-  reports.push({
+  const report = {
     id: Date.now(),
     siteId: id,
     siteName: site.name,
     reason: reason,
     date: new Date().toLocaleString(french ? "fr-MA" : "ar-MA")
-  });
+  };
 
+  if(cloudReady){
+    try{
+      await cloud.collection(REPORTS_COLLECTION).doc(String(report.id)).set(report);
+    }catch(e){
+      alert(cloudErrorMsg(e));
+      return;
+    }
+  }
+
+  reports.push(report);
   saveReports();
   closeReport();
   alert(french ? "Signalement envoyé avec succès ✅" : "تم إرسال التبليغ بنجاح ✅");
@@ -1256,8 +1414,20 @@ function submitReport(){
   }
 }
 
-function deleteReport(reportId){
+async function deleteReport(reportId){
+  const before = reports;
   reports = reports.filter(r => r.id !== reportId);
+
+  if(cloudReady){
+    try{
+      await cloud.collection(REPORTS_COLLECTION).doc(String(reportId)).delete();
+    }catch(e){
+      reports = before;
+      alert(cloudErrorMsg(e));
+      return;
+    }
+  }
+
   saveReports();
   renderReports();
   updateStats();
@@ -1297,12 +1467,10 @@ function openAdmin(){
 
   /*
     NOTE:
-    This is only front-end protection, for basic accidental
-    access prevention. It does NOT provide real security -
-    anyone can read this password in the page source. For
-    real protection, add a backend with proper authentication.
+    Front-end protection ghi bach tmne3 l'accident.
+    Password kayban f source code — li bgha ychoufo yl9ah.
   */
-  if(password !== "Master*Admin#01"){
+  if(password !== "admin123"){
     alert(french ? "Mot de passe incorrect ❌" : "كلمة السر غير صحيحة ❌");
     return;
   }
@@ -1324,7 +1492,7 @@ function showPage(page){
   window.scrollTo({ top:0, behavior:"smooth" });
 }
 
-function saveSiteForm(event){
+async function saveSiteForm(event){
   event.preventDefault();
 
   const editingId = document.getElementById("editingId").value;
@@ -1341,22 +1509,51 @@ function saveSiteForm(event){
   }
 
   if(editingId){
+    /* ---- MODEIFICATION ---- */
     const site = db.find(x => x.id === Number(editingId));
-    if(site){
-      site.name = name;
-      site.url = url;
-      site.category = category;
-      site.icon = icon;
-      site.desc = desc;
-    }
-  }else{
-    db.push({
-      id: getNextId(),
+    if(!site) return;
+
+    const updated = {
+      id: site.id,
       name, url, category, icon, desc,
-      clicks: 0
-    });
+      clicks: site.clicks || 0,
+      order: site.order ?? allocateOrder()
+    };
+
+    if(cloudReady){
+      try{
+        await cloud.collection(SITES_COLLECTION).doc(String(site.id)).set(updated);
+      }catch(e){
+        alert(cloudErrorMsg(e));
+        return;
+      }
+    }
+
+    const index = db.findIndex(x => x.id === site.id);
+    db[index] = updated;
+
+  }else{
+    /* ---- AJOUT ---- */
+    const newSite = {
+      id: allocateId(),
+      name, url, category, icon, desc,
+      clicks: 0,
+      order: allocateOrder()
+    };
+
+    if(cloudReady){
+      try{
+        await cloud.collection(SITES_COLLECTION).doc(String(newSite.id)).set(newSite);
+      }catch(e){
+        alert(cloudErrorMsg(e));
+        return;
+      }
+    }
+
+    db.push(newSite);
   }
 
+  sortSites();
   saveDB();
   event.target.reset();
   cancelEdit();
@@ -1400,18 +1597,38 @@ function closeDeleteModal(){
   document.getElementById("deleteModal").classList.remove("active");
 }
 
-function confirmDelete(){
+async function confirmDelete(){
   if(pendingDeleteId === null) return;
 
-  db = db.filter(x => x.id !== pendingDeleteId);
-  favorites = favorites.filter(x => x !== pendingDeleteId);
-  reports = reports.filter(r => r.siteId !== pendingDeleteId);
+  const id = pendingDeleteId;
+
+  if(cloudReady){
+    try{
+      await cloud.collection(SITES_COLLECTION).doc(String(id)).delete();
+
+      /* 7yd ta l'reports dyal had site mn cloud */
+      const snap = await cloud.collection(REPORTS_COLLECTION).where("siteId","==",id).get();
+      if(!snap.empty){
+        const batch = cloud.batch();
+        snap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+    }catch(e){
+      alert(cloudErrorMsg(e));
+      closeDeleteModal();
+      return;
+    }
+  }
+
+  db = db.filter(x => x.id !== id);
+  favorites = favorites.filter(x => x !== id);
+  reports = reports.filter(r => r.siteId !== id);
 
   saveDB();
   saveFavorites();
   saveReports();
 
-  if(Number(document.getElementById("editingId").value) === pendingDeleteId){
+  if(Number(document.getElementById("editingId").value) === id){
     cancelEdit();
   }
 
@@ -1482,11 +1699,9 @@ if(savedTheme){
 
 /* =====================================================
    LANGUAGE
-   Now translates the whole interface: nav, hero, section
-   titles, admin panel labels, modals - not just the hero.
    ===================================================== */
 
-let french = false;
+let french = localStorage.getItem(LANG_KEY) === "fr";
 
 const translations = {
   ar:{
@@ -1589,7 +1804,9 @@ function applyTranslations(){
   document.getElementById("labelDesc").textContent = t.labelDesc;
 
   const editingId = document.getElementById("editingId").value;
-  document.getElementById("submitBtn").textContent = editingId ? t.cancelEditBtn === t.cancelEditBtn && (french ? "Mettre à jour" : "تحديث الموقع") : t.submitBtn;
+  document.getElementById("submitBtn").textContent = editingId
+    ? (french ? "Mettre à jour" : "تحديث الموقع")
+    : t.submitBtn;
   document.getElementById("cancelEditBtn").textContent = t.cancelEditBtn;
 
   document.getElementById("manageSitesTitle").textContent = t.manageSitesTitle;
@@ -1621,6 +1838,7 @@ function applyTranslations(){
 
 function toggleLanguage(){
   french = !french;
+  localStorage.setItem(LANG_KEY, french ? "fr" : "ar");
   applyTranslations();
 }
 
@@ -1641,13 +1859,16 @@ function escapeHTML(value){
 
 /* =====================================================
    INIT
+   -----------------------------------------------------
+   1. Render fissa3 b data local (cache)
+   2. Jawd Firebase: ila nji7a -> data dyal cloud
+      (mchtarka bin lkoll), ila fachlat -> local mode
    ===================================================== */
 
-renderCategories();
-renderCategorySelect();
-renderSites();
+applyTranslations();
 updateThemeIcon();
 updateStats();
+startCloud();
 
 </script>
 
